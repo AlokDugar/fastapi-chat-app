@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>API Tester with Messages</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; }
+        button { padding: 10px; margin: 5px; background: #007bff; color: white; border: none; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        input, textarea { padding: 8px; margin: 5px; width: 300px; }
+        .result { background: #f8f9fa; padding: 10px; margin: 10px 0; border-left: 4px solid #007bff; }
+        .error { border-left-color: #dc3545; background: #f8d7da; }
+        .success { border-left-color: #28a745; background: #d4edda; }
+        .message { padding: 8px; margin: 5px 0; background: #e9ecef; border-radius: 5px; }
+        .signup-button { background: #28a745; }
+        .signup-button:hover { background: #1e7e34; }
+    </style>
+</head>
+<body>
+    <h1>FastAPI Chat App Tester</h1>
+    
+    <div class="section">
+        <h3>1. Health Check</h3>
+        <button onclick="testHealth()">Test Health</button>
+        <div id="healthResult"></div>
+    </div>
+
+    <div class="section">
+        <h3>2. User Sign Up</h3>
+        <input type="text" id="signupUsername" placeholder="Username" value="newuser123">
+        <input type="email" id="signupEmail" placeholder="Email" value="newuser@example.com">
+        <input type="password" id="signupPassword" placeholder="Password" value="password123">
+        <select id="signupRole" style="padding: 8px; margin: 5px; width: 318px;">
+            <option value="user">User</option>
+            <option value="admin">Admin</option>
+        </select>
+        <br>
+        <button class="signup-button" onclick="testSignup()">Sign Up</button>
+        <button onclick="fillDefaultUser()">Fill Default User</button>
+        <button onclick="fillRandomUser()">Fill Random User</button>
+        <div id="signupResult"></div>
+    </div>
+
+    <div class="section">
+        <h3>3. User Login</h3>
+        <input type="text" id="loginUsername" placeholder="Username" value="admin">
+        <input type="password" id="loginPassword" placeholder="Password" value="admin123">
+        <br>
+        <button onclick="testLogin()">Login</button>
+        <button onclick="fillAdminLogin()">Fill Admin</button>
+        <button onclick="fillUserLogin()">Fill User1</button>
+        <button onclick="useSignupForLogin()">Use Signup Info</button>
+        <div id="loginResult"></div>
+    </div>
+
+    <div class="section">
+        <h3>4. Get Rooms</h3>
+        <button onclick="testRooms()">Get All Rooms</button>
+        <div id="roomsResult"></div>
+    </div>
+
+    <div class="section">
+        <h3>5. Get Messages from Room</h3>
+        <input type="number" id="roomId" placeholder="Room ID" value="1">
+        <input type="number" id="messageLimit" placeholder="Limit (default: 50)" value="20">
+        <button onclick="getMessages()">Get Messages</button>
+        <div id="messagesResult"></div>
+    </div>
+
+    <div class="section">
+        <h3>6. WebSocket Chat Test</h3>
+        <input type="number" id="wsRoomId" placeholder="Room ID" value="1">
+        <button onclick="connectWebSocket()">Connect to Chat</button>
+        <button onclick="disconnectWebSocket()">Disconnect</button>
+        <br>
+        <input type="text" id="messageInput" placeholder="Type message..." style="width: 400px;">
+        <button onclick="sendMessage()">Send Message</button>
+        <div id="chatMessages" style="height: 200px; overflow-y: scroll; border: 1px solid #ccc; padding: 10px;"></div>
+    </div>
+
+    <div class="section">
+        <h3>7. Create Room</h3>
+        <input type="text" id="newRoomName" placeholder="Room Name" value="My New Room">
+        <input type="text" id="newRoomDescription" placeholder="Room Description" value="A room for testing">
+        <button onclick="createRoom()">Create Room</button>
+        <div id="createRoomResult"></div>
+    </div>
+
+    <div class="section">
+        <h3>8. Admin Analytics (Admin Only)</h3>
+        <button onclick="getMessagesPerRoom()">Messages Per Room</button>
+        <button onclick="getUserActivity()">User Activity</button>
+        <button onclick="getAllUsers()">All Users</button>
+        <div id="analyticsResult"></div>
+    </div>
+
+    <script>
+        let authToken = '';
+        let websocket = null;
+        let lastSignupUser = null;
+        const API_BASE = 'http://localhost:8000';
+
+        function showResult(elementId, data, isError = false) {
+            const element = document.getElementById(elementId);
+            element.innerHTML = `<div class="result ${isError ? 'error' : 'success'}">
+                <pre>${JSON.stringify(data, null, 2)}</pre>
+            </div>`;
+        }
+
+        async function testHealth() {
+            try {
+                const response = await fetch(`${API_BASE}/health`);
+                const data = await response.json();
+                showResult('healthResult', data);
+            } catch (error) {
+                showResult('healthResult', {error: error.message}, true);
+            }
+        }
+
+        async function testSignup() {
+            try {
+                const userData = {
+                    username: document.getElementById('signupUsername').value,
+                    email: document.getElementById('signupEmail').value,
+                    password: document.getElementById('signupPassword').value,
+                    role: document.getElementById('signupRole').value
+                };
+
+                if (!userData.username || !userData.email || !userData.password) {
+                    showResult('signupResult', {error: 'Please fill in all fields'}, true);
+                    return;
+                }
+
+                const response = await fetch(`${API_BASE}/signup`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(userData)
+                });
+
+                const data = await response.json();
+                
+                if (response.ok) {
+                    lastSignupUser = {
+                        username: userData.username,
+                        password: userData.password
+                    };
+                    
+                    showResult('signupResult', {
+                        success: true,
+                        message: 'User created successfully!',
+                        user: data,
+                        note: 'You can now use "Use Signup Info" button in login section'
+                    });
+                } else {
+                    showResult('signupResult', data, true);
+                }
+            } catch (error) {
+                showResult('signupResult', {error: error.message}, true);
+            }
+        }
+
+        function fillDefaultUser() {
+            document.getElementById('signupUsername').value = 'testuser' + Math.floor(Math.random() * 1000);
+            document.getElementById('signupEmail').value = 'test' + Math.floor(Math.random() * 1000) + '@example.com';
+            document.getElementById('signupPassword').value = 'password123';
+            document.getElementById('signupRole').value = 'user';
+        }
+
+        function fillRandomUser() {
+            const randomNum = Math.floor(Math.random() * 10000);
+            document.getElementById('signupUsername').value = 'user' + randomNum;
+            document.getElementById('signupEmail').value = 'user' + randomNum + '@test.com';
+            document.getElementById('signupPassword').value = 'pass' + randomNum;
+            document.getElementById('signupRole').value = 'user';
+        }
+
+        function fillAdminLogin() {
+            document.getElementById('loginUsername').value = 'admin';
+            document.getElementById('loginPassword').value = 'admin123';
+        }
+
+        function fillUserLogin() {
+            document.getElementById('loginUsername').value = 'user1';
+            document.getElementById('loginPassword').value = 'user123';
+        }
+
+        function useSignupForLogin() {
+            if (lastSignupUser) {
+                document.getElementById('loginUsername').value = lastSignupUser.username;
+                document.getElementById('loginPassword').value = lastSignupUser.password;
+                showResult('loginResult', {note: 'Filled with signup credentials. Click Login to authenticate.'});
+            } else {
+                showResult('loginResult', {error: 'No signup info available. Sign up first!'}, true);
+            }
+        }
+
+        async function testLogin() {
+            try {
+                const credentials = {
+                    username: document.getElementById('loginUsername').value,
+                    password: document.getElementById('loginPassword').value
+                };
+
+                if (!credentials.username || !credentials.password) {
+                    showResult('loginResult', {error: 'Please enter username and password'}, true);
+                    return;
+                }
+
+                const response = await fetch(`${API_BASE}/login`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(credentials)
+                });
+
+                const data = await response.json();
+                
+                if (response.ok && data.access_token) {
+                    authToken = data.access_token;
+                    showResult('loginResult', {
+                        success: true,
+                        message: 'Login successful!',
+                        user: data.user,
+                        token_preview: data.access_token.substring(0, 20) + '...',
+                        note: 'Token saved! You can now access protected endpoints.'
+                    });
+                } else {
+                    showResult('loginResult', data, true);
+                }
+            } catch (error) {
+                showResult('loginResult', {error: error.message}, true);
+            }
+        }
+
+        async function testRooms() {
+            if (!authToken) {
+                showResult('roomsResult', {error: 'Please login first'}, true);
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/rooms`, {
+                    headers: {'Authorization': `Bearer ${authToken}`}
+                });
+
+                const data = await response.json();
+                showResult('roomsResult', data, !response.ok);
+            } catch (error) {
+                showResult('roomsResult', {error: error.message}, true);
+            }
+        }
+
+        async function getMessages() {
+            if (!authToken) {
+                showResult('messagesResult', {error: 'Please login first'}, true);
+                return;
+            }
+
+            try {
+                const roomId = document.getElementById('roomId').value;
+                const limit = document.getElementById('messageLimit').value || 50;
+                
+                const response = await fetch(`${API_BASE}/rooms/${roomId}/messages?limit=${limit}`, {
+                    headers: {'Authorization': `Bearer ${authToken}`}
+                });
+
+                const data = await response.json();
+                
+                if (response.ok) {
+                    const formattedData = {
+                        total_messages: data.length,
+                        room_id: roomId,
+                        messages: data.map(msg => ({
+                            id: msg.id,
+                            content: msg.content,
+                            sender: msg.sender.username,
+                            created_at: new Date(msg.created_at).toLocaleString()
+                        }))
+                    };
+                    showResult('messagesResult', formattedData);
+                } else {
+                    showResult('messagesResult', data, true);
+                }
+            } catch (error) {
+                showResult('messagesResult', {error: error.message}, true);
+            }
+        }
+
+        async function createRoom() {
+            if (!authToken) {
+                showResult('createRoomResult', {error: 'Please login first'}, true);
+                return;
+            }
+
+            try {
+                const roomData = {
+                    name: document.getElementById('newRoomName').value,
+                    description: document.getElementById('newRoomDescription').value
+                };
+
+                if (!roomData.name) {
+                    showResult('createRoomResult', {error: 'Room name is required'}, true);
+                    return;
+                }
+
+                const response = await fetch(`${API_BASE}/rooms`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${authToken}`
+                    },
+                    body: JSON.stringify(roomData)
+                });
+
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showResult('createRoomResult', {
+                        success: true,
+                        message: 'Room created successfully!',
+                        room: data
+                    });
+                    
+                    document.getElementById('newRoomName').value = '';
+                    document.getElementById('newRoomDescription').value = '';
+                    
+                    setTimeout(() => testRooms(), 1000);
+                } else {
+                    showResult('createRoomResult', data, true);
+                }
+            } catch (error) {
+                showResult('createRoomResult', {error: error.message}, true);
+            }
+        }
+
+        async function getMessagesPerRoom() {
+            if (!authToken) {
+                showResult('analyticsResult', {error: 'Please login first'}, true);
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/admin/analytics/messages-per-room`, {
+                    headers: {'Authorization': `Bearer ${authToken}`}
+                });
+
+                const data = await response.json();
+                showResult('analyticsResult', {
+                    title: 'Messages Per Room',
+                    data: data
+                }, !response.ok);
+            } catch (error) {
+                showResult('analyticsResult', {error: error.message}, true);
+            }
+        }
+
+        async function getUserActivity() {
+            if (!authToken) {
+                showResult('analyticsResult', {error: 'Please login first'}, true);
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/admin/analytics/user-activity`, {
+                    headers: {'Authorization': `Bearer ${authToken}`}
+                });
+
+                const data = await response.json();
+                showResult('analyticsResult', {
+                    title: 'User Activity',
+                    data: data
+                }, !response.ok);
+            } catch (error) {
+                showResult('analyticsResult', {error: error.message}, true);
+            }
+        }
+
+        async function getAllUsers() {
+            if (!authToken) {
+                showResult('analyticsResult', {error: 'Please login first'}, true);
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/admin/users`, {
+                    headers: {'Authorization': `Bearer ${authToken}`}
+                });
+
+                const data = await response.json();
+                showResult('analyticsResult', {
+                    title: 'All Users',
+                    total_users: data.length,
+                    users: data.map(user => ({
+                        id: user.id,
+                        username: user.username,
+                        email: user.email,
+                        role: user.role,
+                        created_at: new Date(user.created_at).toLocaleString()
+                    }))
+                }, !response.ok);
+            } catch (error) {
+                showResult('analyticsResult', {error: error.message}, true);
+            }
+        }
+
+        function connectWebSocket() {
+            if (!authToken) {
+                addChatMessage('System', 'Please login first to get auth token');
+                return;
+            }
+
+            const roomId = document.getElementById('wsRoomId').value;
+            const wsUrl = `ws://localhost:8000/ws/${roomId}?token=${authToken}`;
+            
+            websocket = new WebSocket(wsUrl);
+            
+            websocket.onopen = function(event) {
+                addChatMessage('System', `Connected to room ${roomId}`);
+            };
+
+            websocket.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                const timestamp = new Date(data.created_at).toLocaleTimeString();
+                addChatMessage(data.username, `${data.content} (${timestamp})`, data.type);
+            };
+
+            websocket.onclose = function(event) {
+                addChatMessage('System', 'Disconnected from chat');
+            };
+
+            websocket.onerror = function(error) {
+                addChatMessage('System', 'WebSocket error - check console');
+                console.error('WebSocket error:', error);
+            };
+        }
+
+        function disconnectWebSocket() {
+            if (websocket) {
+                websocket.close();
+                websocket = null;
+            }
+        }
+
+        function sendMessage() {
+            if (!websocket || websocket.readyState !== WebSocket.OPEN) {
+                addChatMessage('System', 'Not connected to chat');
+                return;
+            }
+
+            const messageInput = document.getElementById('messageInput');
+            const message = messageInput.value.trim();
+            
+            if (message) {
+                websocket.send(JSON.stringify({
+                    content: message
+                }));
+                messageInput.value = '';
+            }
+        }
+
+        function addChatMessage(username, content, type = 'message') {
+            const chatDiv = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message';
+            
+            let bgColor = '#e9ecef';
+            if (type === 'history') bgColor = '#fff3cd';
+            if (username === 'System') bgColor = '#d1ecf1';
+            
+            messageDiv.style.backgroundColor = bgColor;
+            messageDiv.innerHTML = `<strong>${username}:</strong> ${content}`;
+            
+            chatDiv.appendChild(messageDiv);
+            chatDiv.scrollTop = chatDiv.scrollHeight;
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            document.getElementById('messageInput').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    sendMessage();
+                }
+            });
+        });
+
+        window.onload = () => testHealth();
+    </script>
+</body>
+</html>
